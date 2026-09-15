@@ -43,8 +43,23 @@ export async function getStaticSitemapEntries(): Promise<SitemapUrlEntry[]> {
     lastmod: categoryLastUpdated[cat] ?? null,
   }));
 
+  // `/categories` is the canonical hub for every category page. Its rendered
+  // contents are the catalogue's category groups, so its honest lastmod is
+  // the latest real change from either the catalogue as a whole or one of
+  // those category groups. Do not substitute a deployment or request date.
+  const categoriesHub: SitemapUrlEntry[] = [
+    {
+      loc: `${SITE_URL}/categories`,
+      priority: '0.8',
+      lastmod: maxLastmod([catalogueLastmod, ...Object.values(categoryLastUpdated)]),
+    },
+  ];
+
   // Blog frontmatter dates are authored, real dates — no fallback needed.
-  const blogPosts = getAllPosts();
+  // A noindex post remains available to readers and internal consumers; it is
+  // only excluded from crawler discovery. Keep this filter local to sitemap
+  // generation rather than changing getAllPosts' retrieval contract.
+  const blogPosts = getAllPosts().filter(post => !post.frontmatter.noindex);
 
   const blogIndexPage: SitemapUrlEntry[] = [
     {
@@ -62,7 +77,7 @@ export async function getStaticSitemapEntries(): Promise<SitemapUrlEntry[]> {
     lastmod: post.frontmatter.updatedAt || post.frontmatter.date || null,
   }));
 
-  return [...staticPages, ...categoryPages, ...blogIndexPage, ...blogPages];
+  return [...staticPages, ...categoriesHub, ...categoryPages, ...blogIndexPage, ...blogPages];
 }
 
 /** Max real lastmod across the static shard's URLs, or null if it has none. */
