@@ -13,8 +13,15 @@ describe('ReadmeSection', () => {
     expect(html).toContain('Overview');
     expect(html).toContain('Install with');
     expect(html).toContain('npx demo');
-    expect(html).toContain('<pre');
+    expect(html).toContain('Copy');
     expect(html).not.toContain('api.github.com');
+  });
+
+  it('does not render unsafe README links', () => {
+    const html = renderToStaticMarkup(
+      <ReadmeSection readmeContent={'[unsafe](javascript:alert(1))'} githubUrl={null} />
+    );
+    expect(html).not.toContain('javascript:');
   });
 
   it('keeps a safe maintainer link when no stored README is available', () => {

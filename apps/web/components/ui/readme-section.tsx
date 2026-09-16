@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { IconExternalLink } from "@tabler/icons-react";
+import { CodeBlock } from "./code-block";
 import { isSafeHttpUrl } from "@/lib/url";
 
 interface ReadmeSectionProps {
@@ -19,7 +20,7 @@ export function cleanReadmeHtml(raw: string): string {
   cleaned = cleaned.replace(/<h[1-6]\s+align="center"[^>]*>[\s\S]*?<\/h[1-6]>/gi, "");
   cleaned = cleaned.replace(/^[ \t]*<br\s*\/?>[ \t]*$/gm, "");
   cleaned = cleaned.replace(/<hr\b[^>]*\/?>/gi, "");
-  cleaned = cleaned.replace(/<picture>[\s\S]*?<\/picture>/gi, "");
+  cleaned = cleaned.replace(/<picture\b[^>]*>[\s\S]*?<\/picture>/gi, "");
   cleaned = cleaned.replace(/<video[\s\S]*?(?:<\/video>|\/>)\s*/gi, "");
   cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, "");
   cleaned = cleaned.replace(
@@ -91,9 +92,15 @@ export function ReadmeSection({ readmeContent, githubUrl }: ReadmeSectionProps) 
               return <p className="text-sm font-bold text-neutral-300">{children}</p>;
             },
             pre({ children }) {
-              return <pre className="overflow-x-auto rounded-xl bg-neutral-950 border border-neutral-800 p-4 text-sm font-mono leading-relaxed">{children}</pre>;
+              // CodeBlock supplies its own <pre> wrapper and copy control.
+              return <>{children}</>;
             },
-            code({ children }) {
+            code({ className, children }) {
+              const code = String(children).replace(/\n$/, "");
+              const language = /language-(\w+)/.exec(className || "")?.[1];
+              if (language || code.includes("\n")) {
+                return <CodeBlock code={code} language={language ?? "text"} />;
+              }
               return <code className="text-neutral-200">{children}</code>;
             },
             a({ href, children }) {
