@@ -58,35 +58,12 @@ async function writeSyncLog(
   }
 }
 
-/** POST to the site's /api/revalidate endpoint so the cached server count
- *  refreshes immediately after a sync. Non-fatal — a failure here should never
- *  block the sync pipeline from completing successfully.
+/**
+ * Cache invalidation is owned by the Daily Sync workflow, which reads the
+ * canonical changed-slug set after all database stages finish. Keeping the
+ * pipeline free of a body-less revalidation request prevents a local run or
+ * a no-change run from invalidating warm aggregate caches without evidence.
  */
-async function triggerSiteRevalidation(): Promise<void> {
-  const siteUrl = process.env.SITE_URL || 'https://mcpfind.org';
-  const token = process.env.REVALIDATE_TOKEN;
-  if (!token) {
-    console.warn('[Revalidate] Skipped — REVALIDATE_TOKEN not set');
-    return;
-  }
-  try {
-    const res = await fetch(`${siteUrl}/api/revalidate`, {
-      method: 'POST',
-      headers: { 'x-revalidate-token': token },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '(unreadable)');
-      console.warn(`[Revalidate] Non-OK response ${res.status}: ${body}`);
-    } else {
-      console.log('[Revalidate] Site cache refreshed successfully');
-    }
-  } catch (err) {
-    // Non-fatal: network failure, timeout, or site down
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[Revalidate] Failed (non-fatal): ${msg}`);
-  }
-}
 
 export async function runSyncPipeline(): Promise<number> {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -188,10 +165,9 @@ export async function runSyncPipeline(): Promise<number> {
     errors,
   }, communitySynced);
 
-  // Successful writes remain real even in a failed run. The Actions workflow
-  // performs targeted slug revalidation after either outcome; this optional
-  // local-run hook refreshes directory aggregate caches.
-  if (synced + communitySynced + enriched + categorized > 0) await triggerSiteRevalidation();
+  // The Actions workflow queries canonical changed slugs after this run and
+  // invalidates only those entries. Its time-based ISR window remains the
+  // recovery path if that comparison cannot complete.
   console.log(`[Sync Pipeline] ${stageFailed ? 'FAILED (partial)' : 'Complete'} — ` +
     `${synced} registry changed, ${communitySynced} community changed, ` +
     `${enriched} enriched, ${categorized} categorized; ${errors.length} error(s)`);

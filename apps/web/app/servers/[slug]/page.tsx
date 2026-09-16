@@ -25,23 +25,7 @@ const CodeBlock = dynamic(
   }
 );
 
-// Lazy-load ReadmeSection: defers react-markdown + remark-gfm bundle (~40 kB)
-// until after FCP so the font-swap LCP repaint isn't blocked by parser work.
-// ssr:true keeps readme content in the initial HTML for SEO crawlers.
-const ReadmeSection = dynamic(
-  () => import("@/components/ui/readme-section").then((m) => ({ default: m.ReadmeSection })),
-  {
-    ssr: true,
-    loading: () => (
-      <div className="animate-pulse space-y-4">
-        <div className="h-6 w-48 bg-neutral-800 rounded" />
-        <div className="h-4 w-full bg-neutral-900 rounded" />
-        <div className="h-4 w-5/6 bg-neutral-900 rounded" />
-        <div className="h-4 w-4/6 bg-neutral-900 rounded" />
-      </div>
-    ),
-  }
-);
+import { ReadmeSection } from "@/components/ui/readme-section";
 import { ServerCard } from "@/components/ui/server-card";
 import { formatNumber } from "@/components/ui/stat-badge";
 import { RelatedArticles } from "@/components/related-articles";

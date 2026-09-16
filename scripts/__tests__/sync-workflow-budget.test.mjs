@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
-describe('Daily Sync enrichment budget', () => {
+describe('Daily Sync safeguards', () => {
   it('keeps the scheduled candidate batch below the stage deadline', () => {
     const workflow = readFileSync(
       new URL('../../.github/workflows/sync.yml', import.meta.url),
@@ -20,4 +20,16 @@ describe('Daily Sync enrichment budget', () => {
     // and bounded retries inside the 15-minute stage.
     expect(deadlineMs - limit * 1_800).toBeGreaterThanOrEqual(360_000);
   });
+  it('only invalidates cache from a non-empty changed-slug set and never falls back to a global purge', () => {
+    const workflow = readFileSync(
+      new URL('../../.github/workflows/sync.yml', import.meta.url),
+      'utf8'
+    );
+    expect(workflow).toContain('if [ "$count" -eq 0 ]; then');
+    expect(workflow).toContain('No changed server rows; cache remains warm.');
+    expect(workflow).toContain('skipped cache invalidation and retained time-based refresh');
+    expect(workflow).not.toContain("revalidate '{\"full\": true}'");
+    expect(workflow).not.toContain("revalidateTag('servers')");
+  });
+
 });

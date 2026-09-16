@@ -333,8 +333,8 @@ describe('sync_log — community ingest', () => {
 });
 
 
-describe('independent stages and cache freshness', () => {
-  it('finishes downstream stages and revalidates successful changes after registry failure', async () => {
+describe('independent stages and change-driven cache freshness', () => {
+  it('finishes downstream stages after registry failure without a duplicate revalidation request', async () => {
     syncFromRegistry.mockImplementation(async (_db, options) => {
       options.onProgress(10);
       throw new Error('registry unavailable');
@@ -342,7 +342,6 @@ describe('independent stages and cache freshness', () => {
     syncCommunitySubmissions.mockResolvedValue({ ingested: 2, registryOwned: 0, skipped: [], errors: [], fatal: false });
     enrichWithGitHub.mockResolvedValue({ enriched: 3, unchanged: 0, errors: [], fatal: false });
     categorizeServers.mockResolvedValue(4);
-    process.env.REVALIDATE_TOKEN = 'test-token';
     const fetch = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', fetch);
     try {
@@ -352,14 +351,13 @@ describe('independent stages and cache freshness', () => {
       expect(enrichWithGitHub).toHaveBeenCalledTimes(1);
       expect(categorizeServers).toHaveBeenCalledTimes(1);
       expect(terminalUpdate()).toMatchObject({ servers_synced: 10, servers_community: 2, servers_enriched: 3, status: 'failed' });
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).not.toHaveBeenCalled();
     } finally { vi.unstubAllGlobals(); }
   });
-  it('does not invalidate caches when no stage changed data', async () => {
+  it('does not issue a revalidation request when no stage changed data', async () => {
     syncFromRegistry.mockResolvedValue(0);
     enrichWithGitHub.mockResolvedValue({ enriched: 0, unchanged: 5, errors: [], fatal: false });
     categorizeServers.mockResolvedValue(0);
-    process.env.REVALIDATE_TOKEN = 'test-token';
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
     try {
