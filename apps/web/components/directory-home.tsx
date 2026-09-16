@@ -464,7 +464,7 @@ export default async function HomePage() {
             {CATEGORIES.map((cat: string) => (
               <li key={cat} className="contents" role="listitem">
                 <Link
-                  href={`/servers?category=${encodeURIComponent(cat)}`}
+                  href={`/categories/${cat}`}
                   className="group flex flex-col items-center gap-3 p-5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 hover:bg-neutral-800/80 transition-all duration-200"
                 >
                   <div className="w-10 h-10 rounded-lg bg-neutral-800 group-hover:bg-neutral-700 flex items-center justify-center transition-colors duration-200">

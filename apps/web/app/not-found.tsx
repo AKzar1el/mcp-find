@@ -1,5 +1,16 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { IconPlugOff, IconArrowLeft, IconSearch } from "@tabler/icons-react";
+
+// A missing URL must not inherit the site-wide homepage canonical or index
+// directive from layout.tsx. Next adds noindex to notFound() responses; this
+// explicit metadata keeps the rendered document unambiguous and preserves
+// follow for any links on the helpful error page.
+export const metadata: Metadata = {
+  title: "Page Not Found",
+  robots: { index: false, follow: true },
+  alternates: { canonical: null },
+};
 
 export default function NotFound() {
   return (
