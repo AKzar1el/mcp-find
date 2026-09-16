@@ -15,8 +15,7 @@
  *
  * Post-fix, the route accepts { slugs: string[] } and busts only the
  * per-slug `server-<slug>` tags plus the narrow 'servers-listing' aggregate
- * tag — the blanket 'servers' tag is only busted on an explicit { full: true }
- * opt-in, never by default.
+ * tag — empty input is a no-op and the blanket 'servers' tag is unreachable.
  *
  * This file lives under lib/ (not app/api/revalidate/) purely so it is
  * picked up by vitest.config.ts's existing `lib/**\/*.test.ts` include glob
