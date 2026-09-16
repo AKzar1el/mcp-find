@@ -15,8 +15,7 @@
  *
  * Post-fix, the route accepts { slugs: string[] } and busts only the
  * per-slug `server-<slug>` tags plus the narrow 'servers-listing' aggregate
- * tag — the blanket 'servers' tag is only busted on an explicit { full: true }
- * opt-in, never by default.
+ * tag — empty input is a no-op and the blanket 'servers' tag is unreachable.
  *
  * This file lives under lib/ (not app/api/revalidate/) purely so it is
  * picked up by vitest.config.ts's existing `lib/**\/*.test.ts` include glob
@@ -66,7 +65,7 @@ function makeRequest(body: unknown, opts: { token?: string | null } = {}): NextR
   return req as unknown as NextRequest;
 }
 
-describe('POST /api/revalidate — T1 per-slug invalidation', () => {
+describe('POST /api/revalidate — change-driven invalidation', () => {
   beforeEach(() => {
     revalidateTagMock.mockClear();
     process.env.REVALIDATE_TOKEN = TOKEN;
@@ -87,22 +86,26 @@ describe('POST /api/revalidate — T1 per-slug invalidation', () => {
     expect(calledTags).not.toContain('servers');
   });
 
-  it('[AC3] a body with no slugs (packages/sync\'s internal Stage-4 call sends no body at all) busts only the aggregate tag, not the blanket tag', async () => {
+  it('treats an empty body as a no-op, preserving warm aggregate and detail caches', async () => {
     const POST = await loadRoute();
     const res = await POST(makeRequest(undefined));
     expect(res.status).toBe(200);
-
-    const calledTags = revalidateTagMock.mock.calls.map((c) => c[0]);
-    expect(calledTags).toEqual(['servers-listing']);
+    await expect(res.json()).resolves.toMatchObject({ revalidated: false, reason: 'no_changed_slugs' });
+    expect(revalidateTagMock).not.toHaveBeenCalled();
   });
 
-  it('[AC3, negative guard] the blanket "servers" tag is still reachable, but ONLY via an explicit { full: true } opt-in', async () => {
+  it('rejects the former full-purge escape hatch without touching any cache tag', async () => {
     const POST = await loadRoute();
     const res = await POST(makeRequest({ full: true }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
+    expect(revalidateTagMock).not.toHaveBeenCalled();
+  });
 
-    const calledTags = revalidateTagMock.mock.calls.map((c) => c[0]);
-    expect(calledTags).toEqual(['servers']);
+  it('deduplicates changed slugs before invalidation', async () => {
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({ slugs: ['alpha', 'alpha'] }));
+    expect(res.status).toBe(200);
+    expect(revalidateTagMock.mock.calls.map((c) => c[0])).toEqual(['server-alpha', 'servers-listing']);
   });
 
   it('rejects a request with an invalid/missing token before touching any cache tag (unchanged auth behavior)', async () => {

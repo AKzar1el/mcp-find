@@ -22,13 +22,6 @@
 # `server-${slug}` loop in route.ts satisfied the "narrow call present"
 # test, so neither aggregate call was ever examined.
 
-# The documented full-purge escape hatch, reachable only via an explicit
-# { full: true } payload (apps/web/app/api/revalidate/route.ts::POST). The
-# daily sync never sends it — .github/workflows/sync.yml's "Bust Vercel
-# cache" step uses it only as the fallback when the changed-slug query
-# fails. Wave-wide by design; that is the entire point of the escape hatch.
-apps/web/app/api/revalidate/route.ts::servers::13
-
 # The default-path aggregate tag. Fires on EVERY sync run (proven: sync 164,
 # 2026-09-03T11:18:23Z, response {"revalidated":true,"full":false,
 # "slugCount":251}). Intended scope is index/listing surfaces only, but the

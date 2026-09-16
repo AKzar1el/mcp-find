@@ -54,32 +54,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // T1 fix (2026-08-25): this endpoint used to call revalidateTag('servers')
-  // unconditionally on every invocation — the ONLY tag every one of the 12
-  // unstable_cache call sites in lib/queries.ts shares — so the daily sync's
-  // "Bust Vercel cache" step (.github/workflows/sync.yml) purged EVERY
-  // cached server, capping the intended 7-day ISR window on /servers/[slug]
-  // (getServerBySlug, 604800s) at an effective ~24h ceiling regardless of
-  // which rows actually changed.
-  //
-  // New contract:
-  //   { slugs: string[] }  — the default, expected shape. Busts the
-  //     per-server `server-<slug>` tag (already present at
-  //     getServerBySlug's unstable_cache call) for each changed slug, plus
-  //     the narrow 'servers-listing' aggregate tag once for index/listing
-  //     surfaces (listServers, getServerCount, getTopServers, category
-  //     pages, etc.) — never the blanket 'servers' tag every cache entry
-  //     shares.
-  //   {}  or no body        — same as slugs: [] — busts ONLY the aggregate
-  //     'servers-listing' tag. This is what packages/sync's internal
-  //     Stage-4 triggerSiteRevalidation() call sends (no body) — its own
-  //     comment says its purpose is "refresh the cached server count," which
-  //     the aggregate-only tag covers correctly without also purging every
-  //     unrelated per-server cache.
-  //   { full: true }        — explicit, documented escape hatch for a full
-  //     blanket purge (the pre-fix behavior). Never the default; must be
-  //     requested on purpose (e.g. a schema/categorization change that
-  //     plausibly touches many rows at once, or manual ops recovery).
+  // Cache invalidation is deliberately change-driven. The Daily Sync workflow
+  // supplies the canonical slugs whose rows changed; empty input is a no-op so
+  // a healthy no-change run cannot turn into an aggregate cache write. A
+  // blanket `servers` purge is intentionally not supported here: it defeats
+  // the seven-day detail ISR window and turns a recovery error into a costly
+  // cold-cache stampede. Time-based revalidation remains the bounded recovery
+  // path if change discovery is unavailable.
   let payload: { slugs?: unknown; full?: unknown } = {};
   try {
     const bodyText = await request.text();
@@ -93,29 +74,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const full = payload.full === true;
-  // Cap defends against an oversized/malformed payload — well above any
-  // legitimate single day's real change volume from the sync pipeline.
+  if (payload.full === true) {
+    return NextResponse.json(
+      { error: 'Full revalidation is disabled; submit the changed server slugs instead' },
+      { status: 400 }
+    );
+  }
+  if (payload.slugs !== undefined && !Array.isArray(payload.slugs)) {
+    return NextResponse.json({ error: 'slugs must be an array' }, { status: 400 });
+  }
+
   const MAX_SLUGS = 5000;
-  const slugs = Array.isArray(payload.slugs)
-    ? payload.slugs.filter((s): s is string => typeof s === 'string' && s.length > 0).slice(0, MAX_SLUGS)
-    : [];
+  const slugs = [...new Set(
+    (Array.isArray(payload.slugs) ? payload.slugs : [])
+      .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0)
+  )];
+  if (slugs.length > MAX_SLUGS) {
+    return NextResponse.json({ error: `Too many slugs (maximum ${MAX_SLUGS})` }, { status: 413 });
+  }
+  if (slugs.length === 0) {
+    return NextResponse.json({ revalidated: false, slugCount: 0, reason: 'no_changed_slugs' });
+  }
 
   try {
-    if (full) {
-      // Documented full-purge fallback — explicit opt-in only, see comment
-      // above. Never reached by a default/empty-body call.
-      revalidateTag('servers');
-    } else {
-      for (const slug of slugs) {
-        revalidateTag(`server-${slug}`);
-      }
-      revalidateTag('servers-listing');
+    for (const slug of slugs) {
+      revalidateTag(`server-${slug}`);
     }
+    revalidateTag('servers-listing');
   } catch (err) {
     console.error('Revalidation failed:', err);
     return NextResponse.json({ error: 'Revalidation failed' }, { status: 500 });
   }
 
-  return NextResponse.json({ revalidated: true, full, slugCount: slugs.length, now: Date.now() });
+  return NextResponse.json({ revalidated: true, slugCount: slugs.length });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, usePathname } from "next/navigation";
+import { useBlogFilter } from "./blog-filter-state";
 import { cn } from "@/lib/utils";
 
 interface CategoryItem {
@@ -26,23 +26,12 @@ function formatCategory(name: string): string {
 
 export function BlogCategoryFilter({
   categories,
-  activeCategory,
   totalCount,
 }: {
   categories: CategoryItem[];
-  activeCategory: string | null;
   totalCount: number;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  function handleClick(category: string | null) {
-    if (category) {
-      router.push(`${pathname}?category=${category}`);
-    } else {
-      router.push(pathname);
-    }
-  }
+  const { activeCategory, selectCategory: handleClick } = useBlogFilter();
 
   const buttonBase =
     "px-3 py-1.5 rounded-lg text-sm transition-colors duration-200";

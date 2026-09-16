@@ -56,8 +56,9 @@ jobs:
       # bounded at 20 pages / 20,000 rows as a safety ceiling for one
       # workflow run. On ANY failure (network, malformed response, missing
       # secrets) this step sets ok=false and the next step falls back to the
-      # documented, explicit full-purge opt-in — never silently skips
-      # revalidation entirely.
+      # bounded stale-while-revalidate window. It never falls back to a
+      # global cache purge, because a failed comparison is not proof every
+      # server changed.
       - name: Determine changed slugs since sync start
         id: changed_slugs
         if: ${{ !cancelled() && steps.sync.outcome != 'skipped' && steps.sync_start.outputs.ts != '' }}
@@ -113,22 +114,27 @@ jobs:
               -H "x-revalidate-token: ${REVALIDATE_TOKEN}" \
               -d "$1"
           }
-          if [ "$SLUGS_OK" = "true" ]; then
-            count=$(jq 'length' "$SLUGS_FILE")
-            # The API accepts at most 5,000 slugs. Split rather than silently
-            # letting it truncate a larger initial repair run. Zero changes
-            # leaves all aggregate and detail caches warm.
-            offset=0
-            while [ "$offset" -lt "$count" ]; do
-              payload=$(jq --argjson offset "$offset" '{slugs: .[$offset:($offset + 5000)]}' "$SLUGS_FILE")
-              revalidate "$payload"
-              offset=$((offset + 5000))
-            done
-          else
-            # Explicit recovery fallback if the changed-row scan failed or
-            # exceeded its ceiling; never publish a truncated changed set.
-            revalidate '{"full": true}'
+          if [ "$SLUGS_OK" != "true" ]; then
+            # A failed or capped comparison is not evidence that every server
+            # changed. Preserve warm caches and let the seven-day ISR window
+            # refresh safely rather than issuing a global purge.
+            echo "::warning::Changed-slug discovery failed; skipped cache invalidation and retained time-based refresh."
+            exit 0
           fi
+          count=$(jq 'length' "$SLUGS_FILE")
+          if [ "$count" -eq 0 ]; then
+            echo "No changed server rows; cache remains warm."
+            exit 0
+          fi
+          # The API accepts at most 5,000 slugs. Split rather than silently
+          # truncating a larger repair run; each batch remains scoped to rows
+          # with evidence of a changed canonical server record.
+          offset=0
+          while [ "$offset" -lt "$count" ]; do
+            payload=$(jq --argjson offset "$offset" '{slugs: .[$offset:($offset + 5000)]}' "$SLUGS_FILE")
+            revalidate "$payload"
+            offset=$((offset + 5000))
+          done
       # IndexNow is change-driven: notify Bing and other participating engines
       # only about canonical detail URLs whose source data changed. A failed
       # discovery notification is visible in the workflow but must not turn a

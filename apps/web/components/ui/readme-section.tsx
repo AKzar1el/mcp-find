@@ -1,9 +1,7 @@
-"use client";
-
-import { useState, useEffect } from "react";
-import { MarkdownContent } from "./markdown-content";
-import { TracingBeam } from "./tracing-beam";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { IconExternalLink } from "@tabler/icons-react";
+import { CodeBlock } from "./code-block";
 import { isSafeHttpUrl } from "@/lib/url";
 
 interface ReadmeSectionProps {
@@ -11,165 +9,120 @@ interface ReadmeSectionProps {
   githubUrl: string | null;
 }
 
-function ReadmeSkeleton() {
-  return (
-    <div className="animate-pulse space-y-4">
-      <div className="h-6 w-48 bg-neutral-800 rounded" />
-      <div className="space-y-2">
-        <div className="h-4 w-full bg-neutral-900 rounded" />
-        <div className="h-4 w-5/6 bg-neutral-900 rounded" />
-        <div className="h-4 w-4/6 bg-neutral-900 rounded" />
-      </div>
-      <div className="space-y-2">
-        <div className="h-4 w-full bg-neutral-900 rounded" />
-        <div className="h-4 w-3/4 bg-neutral-900 rounded" />
-      </div>
-      <div className="space-y-2">
-        <div className="h-4 w-full bg-neutral-900 rounded" />
-        <div className="h-4 w-5/6 bg-neutral-900 rounded" />
-        <div className="h-4 w-2/3 bg-neutral-900 rounded" />
-      </div>
-    </div>
-  );
-}
-
 /**
- * Strip decorative HTML that doesn't render outside GitHub:
- * - <p align="center"> blocks (logos, badges, taglines)
- * - <picture>/<source>/<video> tags
- * - HTML comments
- * - Standalone badge-link lines (<a><img shields.io ...></a>)
- * - Leftover blank lines from stripping
+ * Remove decorative GitHub-specific markup before rendering the README. The
+ * result is rendered by this Server Component, so the original markdown does
+ * not become a client-component prop in the route's RSC payload.
  */
-function cleanReadmeHtml(raw: string): string {
+export function cleanReadmeHtml(raw: string): string {
   let cleaned = raw;
-
-  // Remove <p align="center">...</p> blocks (single-line and multiline)
   cleaned = cleaned.replace(/<p\s+align="center"[^>]*>[\s\S]*?<\/p>/gi, "");
-
-  // Remove <h1-h6 align="center">...</h1-h6> decorative headings
   cleaned = cleaned.replace(/<h[1-6]\s+align="center"[^>]*>[\s\S]*?<\/h[1-6]>/gi, "");
-
-  // Remove standalone <br> / <br /> tags
   cleaned = cleaned.replace(/^[ \t]*<br\s*\/?>[ \t]*$/gm, "");
-
-  // Remove <hr> / <hr /> / <hr class="..."> tags
   cleaned = cleaned.replace(/<hr\b[^>]*\/?>/gi, "");
-
-  // Remove <picture>...</picture> blocks
-  cleaned = cleaned.replace(/<picture[\s\S]*?<\/picture>/gi, "");
-
-  // Remove <video ... /> or <video>...</video>
-  cleaned = cleaned.replace(/<video[\s\S]*?(?:<\/video>|\/>)/gi, "");
-
-  // Remove HTML comments
+  cleaned = cleaned.replace(/<picture\b[^>]*>[\s\S]*?<\/picture>/gi, "");
+  cleaned = cleaned.replace(/<video[\s\S]*?(?:<\/video>|\/>)\s*/gi, "");
   cleaned = cleaned.replace(/<!--[\s\S]*?-->/g, "");
-
-  // Remove standalone lines that are just badge links: <a ...><img ...></a>
   cleaned = cleaned.replace(
     /^[ \t]*<a\s[^>]*>[ \t]*<img\s[^>]*>[ \t]*<\/a>[ \t]*$/gm,
     ""
   );
-
-  // Remove standalone <img> tags with shields.io or badge URLs
   cleaned = cleaned.replace(
     /^[ \t]*<img\s[^>]*src="[^"]*(?:shields\.io|badge)[^"]*"[^>]*\/?>[ \t]*$/gm,
     ""
   );
-
-  // Collapse 3+ consecutive blank lines into 2
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-
-  // Trim leading whitespace/newlines
-  cleaned = cleaned.replace(/^\s+/, "");
-
-  return cleaned;
+  return cleaned.replace(/^\s+/, "");
 }
 
-function parseOwnerRepo(githubUrl: string): string | null {
-  try {
-    const { hostname, pathname } = new URL(githubUrl);
-    if (!hostname.includes("github.com")) return null;
-    const parts = pathname.split("/").filter(Boolean).slice(0, 2);
-    return parts.length === 2 ? parts.join("/") : null;
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * README content is intentionally server rendered. The prior client component
+ * sent every markdown body through the RSC payload in addition to the HTML it
+ * produced. Static markdown keeps the substantive overview crawlable while
+ * removing that duplicated payload and an otherwise unnecessary client fetch
+ * for rows without a stored README.
+ */
 export function ReadmeSection({ readmeContent, githubUrl }: ReadmeSectionProps) {
-  const [content, setContent] = useState<string | null>(readmeContent);
-  const [loading, setLoading] = useState(!readmeContent && !!githubUrl);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    if (readmeContent || !githubUrl) return;
-
-    const ownerRepo = parseOwnerRepo(githubUrl);
-    if (!ownerRepo) {
-      setLoading(false);
-      setError(true);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    fetch(`https://api.github.com/repos/${ownerRepo}/readme`, {
-      headers: { Accept: "application/vnd.github.raw+json" },
-      signal: controller.signal,
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch");
-        return res.text();
-      })
-      .then((text) => {
-        setContent(text);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (err.name === "AbortError") return;
-        setError(true);
-        setLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [readmeContent, githubUrl]);
-
-  const showContent = !loading && !error && content;
-  const showEmpty = !loading && !showContent;
+  if (!readmeContent) {
+    return (
+      <section className="rounded-xl border border-neutral-800 p-6 text-center">
+        <p className="text-neutral-500 text-sm">
+          This MCP has no overview available.
+          {githubUrl && isSafeHttpUrl(githubUrl) && (
+            <>
+              {" "}
+              <a
+                href={githubUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors duration-200"
+              >
+                View on GitHub
+                <IconExternalLink size={12} />
+              </a>
+            </>
+          )}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section>
-      {loading && <ReadmeSkeleton />}
-
-      {showContent && (
-        <TracingBeam className="pl-6 md:pl-12">
-          <MarkdownContent content={cleanReadmeHtml(content!)} />
-        </TracingBeam>
-      )}
-
-      {showEmpty && (
-        <div className="rounded-xl bg-neutral-900/50 border border-neutral-800 p-6 text-center">
-          <p className="text-neutral-500 text-sm">
-            This MCP has no overview available.
-            {/* Guard against javascript:, data:, or other unsafe schemes in the untrusted github_url field. */}
-            {githubUrl && isSafeHttpUrl(githubUrl) && (
-              <>
-                {" "}
+      <div className="prose prose-invert prose-neutral max-w-none prose-headings:text-white prose-headings:font-bold prose-headings:tracking-tight prose-headings:border-b prose-headings:border-neutral-800 prose-headings:pb-2 prose-headings:mb-4 prose-p:text-neutral-400 prose-p:leading-relaxed prose-a:text-blue-400 prose-a:no-underline hover:prose-a:text-blue-300 prose-a:transition-colors prose-strong:text-neutral-200 prose-strong:font-semibold prose-em:text-neutral-300 prose-li:text-neutral-400 prose-ul:marker:text-neutral-600 prose-ol:marker:text-neutral-600 prose-blockquote:border-l-neutral-700 prose-blockquote:text-neutral-400 prose-blockquote:not-italic prose-table:border-collapse prose-thead:border-neutral-700 prose-th:text-neutral-300 prose-th:bg-neutral-800/60 prose-th:border prose-th:border-neutral-700 prose-th:px-3 prose-th:py-2 prose-td:text-neutral-400 prose-td:border prose-td:border-neutral-800 prose-td:px-3 prose-td:py-2 prose-tr:border-neutral-800 prose-code:text-blue-300 prose-code:bg-neutral-900 prose-code:rounded prose-code:px-1.5 prose-code:py-0.5 prose-code:text-sm prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h1({ children }) {
+              return <h2 className="text-2xl font-bold tracking-tight text-white border-b border-neutral-800 pb-2 mb-4">{children}</h2>;
+            },
+            h2({ children }) {
+              return <h3 className="text-xl font-bold tracking-tight text-white border-b border-neutral-800 pb-2 mb-4">{children}</h3>;
+            },
+            h3({ children }) {
+              return <h4 className="text-lg font-bold tracking-tight text-white border-b border-neutral-800 pb-2 mb-4">{children}</h4>;
+            },
+            h4({ children }) {
+              return <h5 className="text-base font-bold tracking-tight text-white border-b border-neutral-800 pb-2 mb-4">{children}</h5>;
+            },
+            h5({ children }) {
+              return <h6 className="text-base font-semibold tracking-tight text-white border-b border-neutral-800 pb-2 mb-4">{children}</h6>;
+            },
+            h6({ children }) {
+              return <p className="text-sm font-bold text-neutral-300">{children}</p>;
+            },
+            pre({ children }) {
+              // CodeBlock supplies its own <pre> wrapper and copy control.
+              return <>{children}</>;
+            },
+            code({ className, children }) {
+              const code = String(children).replace(/\n$/, "");
+              const language = /language-(\w+)/.exec(className || "")?.[1];
+              if (language || code.includes("\n")) {
+                return <CodeBlock code={code} language={language ?? "text"} />;
+              }
+              return <code className="text-neutral-200">{children}</code>;
+            },
+            a({ href, children }) {
+              const external = href?.startsWith("http");
+              return (
                 <a
-                  href={githubUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors duration-200"
+                  href={href}
+                  {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                  className="text-blue-400 hover:text-blue-300 transition-colors duration-200"
                 >
-                  View on GitHub
-                  <IconExternalLink size={12} />
+                  {children}
                 </a>
-              </>
-            )}
-          </p>
-        </div>
-      )}
+              );
+            },
+            img({ src, alt }) {
+              return <img src={src} alt={alt ?? ""} className="rounded-lg max-w-full h-auto my-4 border border-neutral-800" />; // eslint-disable-line @next/next/no-img-element
+            },
+          }}
+        >
+          {cleanReadmeHtml(readmeContent)}
+        </ReactMarkdown>
+      </div>
     </section>
   );
 }
