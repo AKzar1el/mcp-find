@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseFilterParams, buildFilterUrl } from './lib/filter-utils';
-import { invalidDirectoryQuery, canonicalDirectoryApiQuery } from './lib/request-query';
+import { invalidDirectoryQuery, canonicalDirectoryApiQuery, hasUnsupportedDirectoryApiKey } from './lib/request-query';
 
 // NOTE: The static deleted-server-slugs.json 410 block was removed on 2026-06-01
 // (feat/curate-and-live-count). It over-blocked ~5,500 servers that were re-added
@@ -33,13 +33,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid or excessive directory query' },
       { status: 400, headers: { 'Cache-Control': 'no-store' } });
   }
-  if (directoryApi) {
+  if (directoryApi && hasUnsupportedDirectoryApiKey(request.nextUrl.searchParams)) {
     const canonical = canonicalDirectoryApiQuery(request.nextUrl.searchParams);
-    if (canonical !== request.nextUrl.searchParams.toString()) {
-      const url = new URL(request.url);
-      url.search = canonical;
-      return NextResponse.redirect(url, 308);
-    }
+    const url = request.nextUrl.clone();
+    url.search = canonical ? `?${canonical}` : '';
+    return NextResponse.redirect(url, 308);
   }
   // Internal ISR entry points are not independent public URLs.
   if (request.nextUrl.pathname.startsWith('/directory-root/')) return new NextResponse(null, { status: 404 });

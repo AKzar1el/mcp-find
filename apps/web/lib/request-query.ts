@@ -16,10 +16,15 @@ export function invalidDirectoryQuery(params: URLSearchParams): boolean {
     || Boolean(page && (!/^\d+$/.test(page) || Number(page) < 1 || Number(page) > 100));
 }
 
-/** Unknown cache-busting keys and key ordering cannot create new CDN variants. */
+/** Unknown keys are stripped before the API route; supported query order is preserved. */
+export function hasUnsupportedDirectoryApiKey(params: URLSearchParams): boolean {
+  return [...params.keys()].some(key => !DIRECTORY_API_KEYS.has(key));
+}
+
+/** Strip only unsupported keys. Supported key order is accepted as-is so a
+ * middleware redirect can never point a normal API request back to itself. */
 export function canonicalDirectoryApiQuery(params: URLSearchParams): string {
   const normalized = new URLSearchParams();
-  for (const [key, value] of params) if (DIRECTORY_API_KEYS.has(key)) normalized.set(key, value);
-  normalized.sort();
+  for (const [key, value] of params) if (DIRECTORY_API_KEYS.has(key)) normalized.append(key, value);
   return normalized.toString();
 }

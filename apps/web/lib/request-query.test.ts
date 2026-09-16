@@ -14,12 +14,23 @@ describe('bounded directory request input', () => {
       }
     }
   });
-  it('consolidates API cache variants while retaining every supported filter', () => {
+  it('strips unsupported API keys while retaining supported filters and their order', () => {
     expect(canonicalDirectoryApiQuery(new URLSearchParams('sort=updated&q=calendar&nonce=123&lang=Python&status=deprecated&limit=30')))
-      .toBe('lang=Python&limit=30&q=calendar&sort=updated&status=deprecated');
-    const response = middleware(new NextRequest('https://mcpfind.org/api/servers?q=test&nonce=123'));
-    expect(response.status).toBe(308);
-    expect(response.headers.get('location')).toBe('https://mcpfind.org/api/servers?q=test');
+      .toBe('sort=updated&q=calendar&lang=Python&status=deprecated&limit=30');
+    const redirected = middleware(new NextRequest('https://mcpfind.org/api/servers?page=1&limit=24&utm_source=verification'));
+    expect(redirected.status).toBe(308);
+    const location = redirected.headers.get('location');
+    expect(location).toBe('https://mcpfind.org/api/servers?page=1&limit=24');
+    const finalResponse = middleware(new NextRequest(location!));
+    expect(finalResponse.status).toBe(200);
+    expect(finalResponse.headers.get('location')).toBeNull();
+  });
+  it('does not redirect supported API parameters solely to change their order', () => {
+    for (const query of ['page=1&limit=24', 'limit=24&page=1']) {
+      const response = middleware(new NextRequest(`https://mcpfind.org/api/servers?${query}`));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('location')).toBeNull();
+    }
   });
   it('leaves humans and SEO/AI crawlers on public detail and blog pages unaffected', () => {
     for (const agent of ['Mozilla/5.0', 'Googlebot', 'bingbot', 'ClaudeBot', 'PerplexityBot', 'Amazonbot']) {
