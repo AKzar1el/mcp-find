@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseFilterParams } from '@/lib/filter-utils';
 import { listServers } from '@/lib/queries';
+import { invalidDirectoryQuery } from '@/lib/request-query';
 import { CATEGORIES } from '@mcpfind/shared';
 import type { Category, SortOption } from '@mcpfind/shared';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
+  if (invalidDirectoryQuery(searchParams)) {
+    return NextResponse.json({ error: 'Invalid or excessive directory query' },
+      { status: 400, headers: { 'Cache-Control': 'no-store' } });
+  }
 
   const q = searchParams.get('q') || undefined;
   const page = Number(searchParams.get('page') || '1');
