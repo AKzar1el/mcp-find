@@ -4,9 +4,8 @@
  * Crawlable hub-of-hubs: lists every category with a real <Link> to its hub
  * page (/categories/[category]). Indexing-recovery Slice 4 (internal
  * linking): this is the second hop on the home -> category hub -> server
- * path, and gives category hubs a stable, dedicated landing point distinct
- * from the homepage's "Browse by Category" filter cards (which link to
- * /servers?category=X, not the canonical hub URL). generateCategoryJsonLd's
+ * path, and provides a stable, dedicated landing point. The homepage's
+ * "Browse by Category" cards link directly to each category hub. generateCategoryJsonLd's
  * BreadcrumbList on every category page already references
  * `${SITE_URL}/categories` as "Categories" — this page fills that
  * previously-dangling breadcrumb target.
